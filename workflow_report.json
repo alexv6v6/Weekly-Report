@@ -1,0 +1,167 @@
+{
+  "name": "Automated Weekly Report - Pending Records",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 4,
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -464,
+        0
+      ],
+      "id": "ff7f5334-4312-4d6a-bfde-cc64e68826d1",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH pending_states AS (\n  SELECT unnest(ARRAY[\n    'State_1',\n    'State_2',\n    'State_3',\n    'State_4',\n    'State_5'\n  ]) AS state\n),\n\nallowed_types AS (\n  SELECT unnest(ARRAY[\n    'Type_A',\n    'Type_B',\n    'Type_C'\n  ]) AS type\n),\n\nstart_records AS (\n  SELECT DISTINCT ON (record_id)\n         record_id,\n         doc_number,\n         doc_date\n  FROM your_schema.your_docs_table\n  WHERE doc_json->>'doc_type' ILIKE '%start%'\n  ORDER BY record_id, doc_date ASC\n),\n\napproval_records AS (\n  SELECT DISTINCT ON (record_id)\n         record_id,\n         res_number,\n         res_date\n  FROM your_schema.your_resolutions_table\n  WHERE res_json->>'res_type' ILIKE '%approved%'\n  ORDER BY record_id, res_date ASC\n),\n\nlatest_modification AS (\n  SELECT DISTINCT ON (record_id)\n         mod_code,\n         mod_type,\n         mod_state,\n         record_id\n  FROM your_schema.your_modifications_table\n  ORDER BY record_id, mod_date DESC\n)\n\n-- =========================\n-- RECORDS WITHOUT MODIFICATION\n-- =========================\nSELECT\n  r.record_id,\n  r.record_type,\n  r.record_state,\n  r.record_date,\n  s.doc_number,\n  s.doc_date,\n  a.res_number,\n  a.res_date,\n  get_applicant_name(r.applicant_id) AS applicant,\n  r.applicant_id,\n  get_location_name(r.location_code) AS location,\n  CASE\n    WHEN r.record_state IN (SELECT state FROM pending_states)\n    THEN 'Pending'\n    ELSE 'Done'\n  END AS status\nFROM your_schema.your_main_table r\nLEFT JOIN start_records s ON r.record_id = s.record_id\nLEFT JOIN approval_records a ON r.record_id = a.record_id\nWHERE r.record_state IN (SELECT state FROM pending_states)\n  AND r.record_id NOT IN (\n        SELECT record_id FROM your_schema.your_modifications_table\n      )\n  AND r.record_type IN (SELECT type FROM allowed_types)\n\nUNION ALL\n\n-- =========================\n-- RECORDS WITH MODIFICATION\n-- =========================\nSELECT\n  lm.mod_type || '-' || r.record_id AS record_id,\n  r.record_type,\n  lm.mod_state AS record_state,\n  r.record_date,\n  s.doc_number,\n  s.doc_date,\n  a.res_number,\n  a.res_date,\n  get_applicant_name(r.applicant_id) AS applicant,\n  r.applicant_id,\n  get_location_name(r.location_code) AS location,\n  CASE\n    WHEN lm.mod_state IN (SELECT state FROM pending_states)\n    THEN 'Pending'\n    ELSE 'Done'\n  END AS status\nFROM your_schema.your_main_table r\nJOIN latest_modification lm ON r.record_id = lm.record_id\nLEFT JOIN start_records s ON r.record_id = s.record_id\nLEFT JOIN approval_records a ON r.record_id = a.record_id\nWHERE lm.mod_state IN (SELECT state FROM pending_states)\n  AND r.record_type IN (SELECT type FROM allowed_types);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -256,
+        0
+      ],
+      "id": "09ba308b-c649-457f-b3a2-fdb8709662df",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Function to format dates to YYYY-MM-DD\nfunction formatDate(value) {\n  if (!value) return '';\n  const d = new Date(value);\n  if (isNaN(d)) return '';\n  return d.toISOString().split('T')[0];\n}\n\nreturn items.map(item => {\n  const r = item.json;\n\n  return {\n    json: {\n      \"Record ID\":    r.record_id ?? '',\n      \"Type\":         r.record_type ?? '',\n      \"State\":        r.record_state ?? '',\n      \"Record Date\":  formatDate(r.record_date),\n      \"Doc Number\":   r.doc_number ?? '',\n      \"Doc Date\":     formatDate(r.doc_date),\n      \"Resolution\":   r.res_number ?? '',\n      \"Res Date\":     formatDate(r.res_date),\n      \"Applicant\":    r.applicant ?? '',\n      \"Applicant ID\": r.applicant_id ?? '',\n      \"Location\":     r.location ?? '',\n      \"Status\":       r.status ?? ''\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        0
+      ],
+      "id": "775d313c-aef4-4246-bfa6-bae96b30c740",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "pending_report",
+        "options": {
+          "fileName": "Pending_Records_Report.xlsx",
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        0
+      ],
+      "id": "1e7750ed-04d1-4689-a65e-32accc3b39a1",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "toRecipients": "recipient1@yourdomain.com,recipient2@yourdomain.com",
+        "subject": "Weekly Report - Pending Records",
+        "bodyContent": "<p>Good morning,</p>\n\n<p>\n  Please find attached the list of pending records as registered in the system.\n</p>\n<br/><br/>\n<p style=\"font-size:12px; color:#666;\">\n  This email was automatically generated.\n</p>\n<p>\n  <strong><em>\n    Your System Name<br>\n    Your Organization<br>\n    Tel: YOUR_PHONE\n  </em></strong>\n</p>\n",
+        "additionalFields": {
+          "attachments": {
+            "attachments": [
+              {
+                "binaryPropertyName": "pending_report"
+              }
+            ]
+          },
+          "bodyContentType": "html"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        368,
+        0
+      ],
+      "id": "ef6e947a-ad21-428e-8e81-0241e4ef6c0d",
+      "name": "Send a message",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_OUTLOOK_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
