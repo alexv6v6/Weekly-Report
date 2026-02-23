@@ -1,0 +1,350 @@
+{
+  "name": "Automated Weekly Report - Multi-Report with Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [1],
+              "triggerAtHour": 3,
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-1584, 464],
+      "id": "7b3174f0-5e58-4853-99b2-51001b780e34",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (p.record_id)\n       p.record_id,\n       p.record_type,\n       p.record_state,\n       a.doc_date,\n       get_officer_name(v.officer_id) AS officer,\n       v.visit_json->>'visit_scheduled_date' AS scheduled_date\nFROM your_schema.records p\nJOIN your_schema.visits v ON p.record_id = v.record_id\nJOIN your_schema.documents a ON p.record_id = a.record_id\nWHERE v.visit_json->>'visit_type' = 'Evaluation'\n  AND a.doc_json->>'doc_type' IN ('Start Document', 'Official Start Document')\n  AND v.visit_json->>'visit_report_date' = ''\n  AND v.visit_json->>'visit_scheduled_date' <> ''\n  AND (v.visit_json->>'visit_scheduled_date')::date BETWEEN now()::date - 7 AND now()::date\n  AND p.record_type IN (\n        'Type_A',\n        'Type_B',\n        'Type_C'\n      )\nORDER BY p.record_id, a.doc_date DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-1360, 80],
+      "id": "bb04ff3d-f521-4c35-bbe6-aab9c3ab6d41",
+      "name": "Query - Scheduled Visits",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function formatDate(value) {\n  if (!value) return '';\n  return new Date(value).toISOString().slice(0, 10);\n}\n\nconst output = [];\n\nfor (const item of items) {\n  output.push({\n    \"Record ID\":        item.json.record_id ?? '',\n    \"Type\":             item.json.record_type ?? '',\n    \"State\":            item.json.record_state ?? '',\n    \"Doc Date\":         formatDate(item.json.doc_date),\n    \"Officer\":          item.json.officer ?? '',\n    \"Scheduled Date\":   formatDate(item.json.scheduled_date)\n  });\n}\n\nreturn output.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1136, 80],
+      "id": "5c5a1360-4738-4244-a912-48a91351af3f",
+      "name": "Transform - Scheduled Visits",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "scheduled_visits",
+        "options": { "fileName": "scheduled_visits.xlsx" }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [-912, 224],
+      "id": "359978b9-cfc5-4411-8c9b-23d376df200a",
+      "name": "File - Scheduled Visits",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (p.record_id)\n       p.record_id,\n       p.record_type,\n       p.record_state,\n       a.doc_date,\n       get_officer_name(v.officer_id) AS officer,\n       v.visit_json->>'visit_scheduled_date' AS scheduled_date,\n       v.visit_json->>'visit_report_date' AS report_date\nFROM your_schema.records p\nJOIN your_schema.visits v ON p.record_id = v.record_id\nJOIN your_schema.documents a ON p.record_id = a.record_id\nWHERE v.visit_json->>'visit_type' = 'Evaluation'\n  AND a.doc_json->>'doc_type' IN ('Start Document', 'Official Start Document')\n  AND v.visit_json->>'visit_report_date' <> ''\n  AND (v.visit_json->>'visit_report_date')::date BETWEEN now()::date - 7 AND now()::date\n  AND p.record_type IN ('Type_A', 'Type_B', 'Type_C')\nORDER BY p.record_id, a.doc_date DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-1360, 464],
+      "id": "65306639-408c-460b-9fda-010c60acd1cb",
+      "name": "Query - Visits with Report",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function formatDate(value) {\n  if (!value) return '';\n  const d = new Date(value);\n  if (isNaN(d)) return '';\n  return d.toISOString().split('T')[0];\n}\n\nreturn items.map(item => {\n  const r = item.json;\n  return {\n    json: {\n      \"Record ID\":      r.record_id ?? '',\n      \"Type\":           r.record_type ?? '',\n      \"State\":          r.record_state ?? '',\n      \"Doc Date\":       formatDate(r.doc_date),\n      \"Officer\":        r.officer ?? '',\n      \"Scheduled Date\": formatDate(r.scheduled_date),\n      \"Report Date\":    formatDate(r.report_date)\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1136, 464],
+      "id": "0aee068e-fbe1-4897-ad43-8b244c745f15",
+      "name": "Transform - Visits with Report"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "visits_with_report",
+        "options": { "fileName": "visits_with_report.xlsx" }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [-912, 704],
+      "id": "fbacbff4-d3c5-4c34-a449-872d38069f04",
+      "name": "File - Visits with Report"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { total_visits_with_report: items.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-912, 416],
+      "id": "8df98395-2704-4751-880e-5593d618d68a",
+      "name": "Count - Visits with Report"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (p.record_id)\n       p.record_id,\n       p.record_type,\n       p.record_state,\n       a.doc_date,\n       get_officer_name(v.officer_id) AS officer,\n       v.visit_json->>'visit_scheduled_date' AS scheduled_date,\n       req.req_json->>'req_registration_date' AS req_date,\n       req.req_json->>'req_doc_number' AS req_doc,\n       req.req_json->>'req_response_date' AS response_date,\n       req.req_json->>'req_response_doc' AS response_doc\nFROM your_schema.requirements req\nJOIN your_schema.records p ON p.record_id = req.record_id\nJOIN your_schema.visits v ON p.record_id = v.record_id\nJOIN your_schema.documents a ON p.record_id = a.record_id\nWHERE v.visit_json->>'visit_type' = 'Evaluation'\n  AND a.doc_json->>'doc_type' IN ('Start Document', 'Official Start Document')\n  AND (req.req_json->>'req_registration_date')::date BETWEEN now()::date - 7 AND now()::date\n  AND p.record_type IN ('Type_A', 'Type_B', 'Type_C')\nORDER BY p.record_id, scheduled_date DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-1360, 896],
+      "id": "5a5e4389-e3c9-4c88-843e-023f1558009f",
+      "name": "Query - Requirements",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function formatDate(value) {\n  if (!value) return '';\n  const d = new Date(value);\n  if (isNaN(d)) return '';\n  return d.toISOString().split('T')[0];\n}\n\nreturn items.map(item => {\n  const r = item.json;\n  return {\n    json: {\n      \"Record ID\":       r.record_id ?? '',\n      \"Type\":            r.record_type ?? '',\n      \"State\":           r.record_state ?? '',\n      \"Doc Date\":        formatDate(r.doc_date),\n      \"Officer\":         r.officer ?? '',\n      \"Scheduled Date\":  formatDate(r.scheduled_date),\n      \"Req Date\":        formatDate(r.req_date),\n      \"Req Doc\":         r.req_doc ?? '',\n      \"Response Date\":   formatDate(r.response_date),\n      \"Response Doc\":    r.response_doc ?? ''\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1136, 896],
+      "id": "cdb27185-772e-4093-b644-33575c7a754a",
+      "name": "Transform - Requirements"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "requirements",
+        "options": { "fileName": "requirements.xlsx", "headerRow": true }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [-912, 896],
+      "id": "5061ed37-27c9-432c-ac1d-9b80a26033ff",
+      "name": "File - Requirements"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { total_requirements: items.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-912, 1088],
+      "id": "90812709-7e72-4ff4-b53b-cb4001bb980b",
+      "name": "Count - Requirements"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (p.record_id)\n       p.record_id,\n       p.record_type,\n       get_officer_name(v.officer_id) AS officer,\n       v.visit_json->>'visit_scheduled_date' AS scheduled_date,\n       v.visit_json->>'visit_report_date' AS report_date\nFROM your_schema.records p\nJOIN your_schema.visits v ON p.record_id = v.record_id\nWHERE v.visit_json->>'visit_type' = 'Follow-up'\n  AND NULLIF(v.visit_json->>'visit_report_date', '') IS NOT NULL\n  AND (v.visit_json->>'visit_report_date')::date\n        BETWEEN (CURRENT_DATE - INTERVAL '7 days')::date AND CURRENT_DATE\n  AND p.record_type IN ('Type_A', 'Type_B', 'Type_C')\nORDER BY p.record_id, (v.visit_json->>'visit_report_date')::date DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-1360, 1280],
+      "id": "4a29a65c-6479-4267-a523-4e84a591347e",
+      "name": "Query - Follow-up Visits",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function formatDate(value) {\n  if (!value) return '';\n  if (typeof value === 'string') {\n    const clean = value.trim();\n    if (!clean) return '';\n    return clean.substring(0, 10);\n  }\n  const d = new Date(value);\n  if (isNaN(d)) return '';\n  return d.toISOString().substring(0, 10);\n}\n\nreturn items.map(item => {\n  const r = item.json;\n  return {\n    json: {\n      \"Record ID\":       r.record_id ?? '',\n      \"Type\":            r.record_type ?? '',\n      \"Officer\":         r.officer ?? '',\n      \"Scheduled Date\":  formatDate(r.scheduled_date),\n      \"Report Date\":     formatDate(r.report_date)\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1136, 1280],
+      "id": "2d83a4be-fd62-4137-bb87-288749c5b6b4",
+      "name": "Transform - Follow-up Visits"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { total_followups: items.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-912, 1472],
+      "id": "c3b6c1f8-858d-4955-aca5-272db04654e1",
+      "name": "Count - Follow-up Visits"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "followup_visits",
+        "options": { "fileName": "followup_visits.xlsx", "headerRow": true }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [-912, 1280],
+      "id": "5aa10c7f-50dc-4685-ad60-c6bb49da1931",
+      "name": "File - Follow-up Visits"
+    },
+    {
+      "parameters": { "numberInputs": 5 },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-688, 656],
+      "id": "945a8aa0-f868-44ed-90f0-ffab947ac7a9",
+      "name": "Merge - Files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergedItem = { json: {}, binary: {} };\nfor (const item of items) {\n  if (item.binary) {\n    Object.keys(item.binary).forEach(key => {\n      mergedItem.binary[key] = item.binary[key];\n    });\n  }\n}\nreturn [mergedItem];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-464, 704],
+      "id": "75bbec29-da12-4240-bf27-09165ad93365",
+      "name": "Merge Binary Files"
+    },
+    {
+      "parameters": { "numberInputs": 5 },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-688, 368],
+      "id": "74e9e07b-8065-4288-a512-0a9d40fe5362",
+      "name": "Merge - Counts"
+    },
+    {
+      "parameters": {
+        "jsCode": "let totalVisitsWithReport = 0;\nlet totalRequirements = 0;\nlet totalFollowups = 0;\n\nfor (const item of items) {\n  if (item.json.total_visits_with_report !== undefined) totalVisitsWithReport = item.json.total_visits_with_report;\n  if (item.json.total_requirements !== undefined) totalRequirements = item.json.total_requirements;\n  if (item.json.total_followups !== undefined) totalFollowups = item.json.total_followups;\n}\n\nconst html = `\n  <h2 style=\"color:#2c3e50;\">📊 Weekly Summary Report</h2>\n  <p>Below is the summary of activity registered during the last week:</p>\n  <table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" style=\"border-collapse:collapse; width:100%;\">\n  <thead style=\"background-color:#f2f2f2;\">\n    <tr>\n      <th style=\"text-align:left;\">Indicator</th>\n      <th style=\"text-align:center;\">Count</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>📄 Visits with report submitted</td>\n      <td style=\"text-align:center; font-weight:bold;\">${totalVisitsWithReport}</td>\n    </tr>\n    <tr>\n      <td>📎 Records with requirement registered</td>\n      <td style=\"text-align:center; font-weight:bold;\">${totalRequirements}</td>\n    </tr>\n    <tr>\n      <td>📍 Follow-up visits with report</td>\n      <td style=\"text-align:center; font-weight:bold;\">${totalFollowups}</td>\n    </tr>\n  </tbody>\n  </table>\n  <br/>\n  <p>The attached files contain the full detail for each category.</p>\n  <br/>\n  <p style=\"font-size:12px; color:#666;\">This email was automatically generated.</p>\n  <p><strong><em>Your System Name<br>Your Organization</em></strong></p>\n`;\n\nreturn [{ json: { emailBody: html } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-464, 416],
+      "id": "779b2949-20b2-4001-b1e6-3a53b8b9caf6",
+      "name": "Build HTML Email"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-240, 560],
+      "id": "1e446e24-1884-46c5-bf26-77537dee6dc4",
+      "name": "Merge - Email + Files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const finalItem = { json: {}, binary: {} };\nfor (const item of items) {\n  if (item.json) Object.assign(finalItem.json, item.json);\n  if (item.binary) Object.assign(finalItem.binary, item.binary);\n}\nreturn [finalItem];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-16, 560],
+      "id": "2a79841d-8b96-40ba-8463-a213ca3ff39e",
+      "name": "Merge JSON + Binary"
+    },
+    {
+      "parameters": {
+        "toRecipients": "recipient1@yourdomain.com,recipient2@yourdomain.com",
+        "subject": "Weekly Activity Report",
+        "bodyContent": "={{$json.emailBody}}",
+        "additionalFields": {
+          "attachments": {
+            "attachments": [
+              { "binaryPropertyName": "visits_with_report" },
+              { "binaryPropertyName": "requirements" },
+              { "binaryPropertyName": "followup_visits" }
+            ]
+          },
+          "bodyContentType": "html"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [208, 560],
+      "id": "620090c2-367f-468c-a633-08ab5d4ed105",
+      "name": "Send Email",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_OUTLOOK_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[
+        { "node": "Query - Scheduled Visits", "type": "main", "index": 0 },
+        { "node": "Query - Visits with Report", "type": "main", "index": 0 },
+        { "node": "Query - Requirements", "type": "main", "index": 0 },
+        { "node": "Query - Follow-up Visits", "type": "main", "index": 0 }
+      ]]
+    },
+    "Query - Scheduled Visits": { "main": [[{ "node": "Transform - Scheduled Visits", "type": "main", "index": 0 }]] },
+    "Transform - Scheduled Visits": { "main": [[{ "node": "File - Scheduled Visits", "type": "main", "index": 0 }]] },
+    "File - Scheduled Visits": { "main": [[{ "node": "Merge - Files", "type": "main", "index": 1 }]] },
+    "Query - Visits with Report": { "main": [[{ "node": "Transform - Visits with Report", "type": "main", "index": 0 }]] },
+    "Transform - Visits with Report": {
+      "main": [[
+        { "node": "File - Visits with Report", "type": "main", "index": 0 },
+        { "node": "Count - Visits with Report", "type": "main", "index": 0 }
+      ]]
+    },
+    "File - Visits with Report": { "main": [[{ "node": "Merge - Files", "type": "main", "index": 2 }]] },
+    "Count - Visits with Report": { "main": [[{ "node": "Merge - Counts", "type": "main", "index": 0 }]] },
+    "Query - Requirements": { "main": [[{ "node": "Transform - Requirements", "type": "main", "index": 0 }]] },
+    "Transform - Requirements": {
+      "main": [[
+        { "node": "File - Requirements", "type": "main", "index": 0 },
+        { "node": "Count - Requirements", "type": "main", "index": 0 }
+      ]]
+    },
+    "File - Requirements": { "main": [[{ "node": "Merge - Files", "type": "main", "index": 3 }]] },
+    "Count - Requirements": { "main": [[{ "node": "Merge - Counts", "type": "main", "index": 1 }]] },
+    "Query - Follow-up Visits": { "main": [[{ "node": "Transform - Follow-up Visits", "type": "main", "index": 0 }]] },
+    "Transform - Follow-up Visits": {
+      "main": [[
+        { "node": "File - Follow-up Visits", "type": "main", "index": 0 },
+        { "node": "Count - Follow-up Visits", "type": "main", "index": 0 }
+      ]]
+    },
+    "File - Follow-up Visits": { "main": [[{ "node": "Merge - Files", "type": "main", "index": 4 }]] },
+    "Count - Follow-up Visits": { "main": [[{ "node": "Merge - Counts", "type": "main", "index": 2 }]] },
+    "Merge - Files": { "main": [[{ "node": "Merge Binary Files", "type": "main", "index": 0 }]] },
+    "Merge Binary Files": { "main": [[{ "node": "Merge - Email + Files", "type": "main", "index": 1 }]] },
+    "Merge - Counts": { "main": [[{ "node": "Build HTML Email", "type": "main", "index": 0 }]] },
+    "Build HTML Email": { "main": [[{ "node": "Merge - Email + Files", "type": "main", "index": 0 }]] },
+    "Merge - Email + Files": { "main": [[{ "node": "Merge JSON + Binary", "type": "main", "index": 0 }]] },
+    "Merge JSON + Binary": { "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": { "templateCredsSetupCompleted": false },
+  "tags": []
+}
